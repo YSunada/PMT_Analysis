@@ -1,0 +1,388 @@
+////////////////////////////////////////////////////////////////////////////////
+// ABBREVIATION RULE                                                          //
+// after pulse -> ap							      //
+// canvas      -> cnvs							      //
+// histogram   -> hst							      //
+// loop        -> lp                                                          //
+// measurement -> msr							      //
+// number      -> num                                                         //
+// threshold   -> trsld							      //
+// valuable    -> val							      //
+// waveform    -> wform                                                       //
+////////////////////////////////////////////////////////////////////////////////
+
+#include "TApplication.h"
+#include "TString.h"
+#include <iostream>
+#include "TFile.h"
+#include "TTree.h"
+#include "TGraph.h"
+#include "TCanvas.h"
+#include "TH1F.h"
+#include "TGraph.h"
+#include "TF1.h"
+#include "TStyle.h"
+#include "TMath.h"
+#include "TSystem.h"
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <cmath>
+
+////////////////////////////////////////////////////////////////////////////////
+// DEFINITION OF VALUABLES                                                    //
+// k_max_seq        : Time range what you want to analyse [us]                //
+// k_num_ch         : Number of the DRS4 ch                                   //
+// k_lp_start_slice : Number of start fill                                    //
+// k_lp_extry_max   : Number of analysis data                                 //
+// k_cell_cut_ch1   : Cell number for noise reduction in ch 1                 //
+// k_cell_cut_ch2   : Cell number for noise reduction in ch 2                 //
+// k_cell_cut_ch3   : Cell number for noise reduction in ch 3                 //
+// k_cell_cut_ch4   : Cell number for noise reduction in ch 4                 //
+// k_cut_swich      : Switch for noise reduction [true/cut,false/without]     //
+// k_trsld_cut      : Threshold of the noise reduction range [mV]             //
+// k_trsld_upper    : Upper limit of the noise reduction range [mV]           //
+// msr_vals         : Measurement data group                                  //
+// tree_ap          : Tree which contain measurement data                     //
+// hst_wform        : Histogram for waveform                                  //
+// time_msr         : date of measurement [MM/dd/hh/mm]                       //
+// dhm_msr          : month.day.hour.minutes                                  // 
+////////////////////////////////////////////////////////////////////////////////
+
+
+/////////////////////////////////////////////
+// Define constant                         //
+/////////////////////////////////////////////
+#include <global.h>
+#include <pre_analysis.h>
+#include <chrg.h>
+#include <name_edit.h>
+#include <HstClean.h>
+/////////////////////////////////////////////
+// Main Program                            //
+/////////////////////////////////////////////
+
+int main (int argc,char **argv)
+{
+
+  TString filename = argv[1];
+  TString treename = "TreeSinglePE_0";
+  int ch = 0;//atoi(argv[3]);
+
+  TFile* openfile = TFile::Open(filename);
+  //TApplication theApp("theApp",&argc,argv);
+  //  TTree *works    = (TTree*)openfile->Get("TreeOnePhoto_0");
+  //TTree *works    = (TTree*)openfile->Get("TreeOnePhoto_Fil14_0");
+  //TTree *dark     = (TTree*)openfile->Get("TreeDark_0");
+
+  TTree *works    = (TTree*)openfile->Get(treename);
+  TTree *dark     = (TTree*)openfile->Get("TreeNoiseCheck_0");
+
+  int event_num =  dark->GetEntries();
+  int cnt =0;
+  int dark_stopcell;
+  float wform_cg[event_num] ;
+  float offset[event_num]   ;
+  float dwform_cg[event_num] ;
+  float doffset[event_num]   ;
+  float dcharge[event_num] ;
+  float peak_time=0;
+  float  dark_nwform[g_num_slice];
+  float  dark_pwform[g_num_slice];
+  float  dark_time[g_num_slice];
+  float  dwform[g_num_slice];
+  mkdir("PMT_Result",0777);  
+
+  // for(int ch=0;ch<2;ch++)
+    {
+      
+      ///////////In <name_edit.h>,Get PMT Serial and Measurement Date///////
+      TString Serial = "NULL";
+      TString Date = "NULL";
+      GetSerialAndDate(&Serial,&Date,ch,filename);
+      //////////////////////////////////////////////////////////////////////
+
+
+      //////////Data Set and pre analysis//////////////////////////////////
+      TH1F* hst = pre_analysis(works,ch,offset,wform_cg);
+      int peak_bin=hst->GetMaximumBin();
+      peak_time= hst->GetBinCenter(peak_bin);
+      
+      dark->SetBranchAddress("time",dark_time);
+      dark->SetBranchAddress("stopcell",&dark_stopcell);  
+      if(ch==0)
+	{
+	  dark->SetBranchAddress("wform0",dark_nwform);
+	  dark->SetBranchAddress("wform1",dark_pwform);
+	}
+      else if(ch==1)
+	{
+	  dark->SetBranchAddress("wform2",dark_nwform);
+	  dark->SetBranchAddress("wform3",dark_pwform);
+	}
+      //////////////////////////////////////////////////////////////////////
+
+
+      //////////// Dark data offset search ////////////////////////////////
+      for(int lp_event=0;lp_event<event_num;lp_event++)
+	{
+	  dark ->GetEntry(lp_event);
+	  doffset[lp_event] = 0;
+	  for(int lp_slice=g_edg_cut;lp_slice<peak_bin - g_chrg_rng*smpl_frq;lp_slice++)
+	    {
+	      cnt++;
+	      doffset[lp_event] +=  dark_pwform[lp_slice] - dark_nwform[lp_slice];
+	    }
+	  doffset[lp_event] = doffset[lp_event]/(float)cnt;      
+	  cnt =0;
+	}
+      //////////////////////////////////////////////////////////////////////
+
+
+      //////////// Dark data Fill  //////// ////////////////////////////////
+      TH1F* hst_chrg_raw  = ChrgDist(works,ch,peak_time,offset);
+      TH1F* hst_dark  = (TH1F*)(hst_chrg_raw->Clone("Dark"));  
+      hst_dark->Reset();
+      for(int lp_event=0;lp_event<event_num;lp_event++)
+	{
+	  dark->GetEntry(lp_event);
+	  for(int lp_slice=0;lp_slice<g_num_slice;lp_slice++)
+	    {
+	      dwform[lp_slice]=dark_pwform[lp_slice]-dark_nwform[lp_slice]-doffset[lp_event];
+	    }
+	  hst_dark->Fill(chrg(ch,dwform,dark_time,peak_time - g_chrg_rng,
+			      peak_time + g_chrg_rng,dark_stopcell));
+	}
+      //////////////////////////////////////////////////////////////////////
+
+
+      //////////////Single - Dark //////////////////////////////////////////
+      TH1F* hst_sngl_photo= (TH1F*)(hst_chrg_raw->Clone("DarkDeduct"));
+      TGraph *grph1   = new TGraph() ;
+      TGraph *grph2   = new TGraph() ;
+      int max_bin = hst_chrg_raw->GetMaximumBin();
+      int dmax_bin = hst_dark->GetMaximumBin();  
+      float ratio=0;
+      float N0 = 0;
+      float Nall = 0;
+      float lamda = 0;
+      float N1=0;
+      float N2=0;
+      float N3=0;
+      double gp_d[3];
+      double gp_s[3]; 
+      /*
+      for(int i=-10;i<10;i++)
+	{
+	  ratio += hst_chrg_raw->GetBinContent(max_bin+i)
+	    /(hst_dark->GetBinContent(dmax_bin+i));
+	}
+      */
+      
+      hst_dark->Fit("gaus");
+      gp_d[0] = hst_dark->GetFunction("gaus")->GetParameter(0);
+      gp_d[1] = hst_dark->GetFunction("gaus")->GetParameter(1);
+      gp_d[2] = hst_dark->GetFunction("gaus")->GetParameter(2);
+      hst_chrg_raw->Fit("gaus","","",gp_d[1]-gp_d[2]*2.,gp_d[1]+gp_d[2]/2.);
+      TF1* func_fit = hst_chrg_raw->GetFunction("gaus");
+      hst_dark->Reset();
+      int bin_dark = hst_dark->GetNbinsX();
+      for(int i=1;i<bin_dark+1;i++)
+	{
+	  hst_dark->SetBinContent(i,func_fit->Eval(hst_dark->GetBinCenter(i)));
+	}
+     
+      
+      TCanvas* c= new TCanvas("","",600,600);
+      hst_dark->Draw();
+      //theApp.Run();
+      c->Modified();
+      c->Update();
+      gSystem->ProcessEvents();
+      std::getchar();	
+      Nall = hst_chrg_raw->Integral();
+      N0   = hst_dark->Integral();
+      lamda = TMath::Log(Nall/N0);
+      N1 = N0*lamda;
+      N2 = lamda*N1/2.;
+      N3 = lamda*N2/3.;
+
+      
+
+      hst_dark->SetLineColor(kRed);
+      hst_sngl_photo->Add(hst_chrg_raw,hst_dark,1,-1.);
+      TFile *savefile = new TFile("PMT_Result/OnePhoto_"+Serial+"_"+Date+".root","RECREATE");
+      TH1F* DarkDeduct = (TH1F*)(hst_sngl_photo->Clone("DarkDeduct_raw"));
+      hst_sngl_photo=HstClean(hst_sngl_photo);
+      hst_sngl_photo->Rebin(10);
+           
+      int bin_2sgm = hst_sngl_photo->FindBin(func_fit->GetParameter(1)+2.0*func_fit->GetParameter(2));            
+      float sum_nq=0;
+      float sum_n=0;
+      for(int lp_bin=1;lp_bin<bin_2sgm;lp_bin++)
+	{	  
+	  sum_nq += (hst_sngl_photo->GetBinContent(lp_bin))*(hst_sngl_photo->GetBinCenter(lp_bin));
+	  sum_n  += hst_sngl_photo->GetBinContent(lp_bin);
+	  hst_sngl_photo->SetBinContent(lp_bin,0);
+	  hst_sngl_photo->SetBinError(lp_bin,0);
+	}
+     
+      std::cout<<__LINE__<<std::endl
+	       <<sum_n<<std::endl
+	       <<sum_nq/sum_n<<std::endl;
+      int bin_sum = hst_sngl_photo->FindBin(sum_nq/sum_n);
+      hst_sngl_photo->SetBinContent(bin_sum,sum_n);
+      
+	
+      int bin_num2 = hst_sngl_photo->GetNbinsX();
+      /*
+      for(int lp_bin = 0; lp_bin < bin_num2;lp_bin++)
+	{
+	  if(hst_sngl_photo->GetBinContent(lp_bin)<0 || hst_sngl_photo->GetBinCenter(lp_bin)<0 )
+	    {
+	      hst_sngl_photo->SetBinContent(lp_bin,0.);
+	      hst_sngl_photo->SetBinError(lp_bin,0.);
+	    }
+	}
+      */
+
+
+
+
+
+
+      ////////////////////////////////////////////////////////////////////////
+
+      float two_phe[bin_num2+1];
+      float two_phe_err[bin_num2+1];
+      float ythree_phe=0;
+      float ythree_phe_err=0;
+      float three_phe[bin_num2+1];
+      float three_phe_err[bin_num2+1];
+      TH1F *hst_two_photo = (TH1F*)(hst_sngl_photo->Clone("Two_Photo"));
+      TH1F *hst_thr_photo = (TH1F*)(hst_sngl_photo->Clone("Three_Photo"));
+      TH1F *hst_nonzero = (TH1F*)(hst_sngl_photo->Clone("Full_Photo"));
+      int start_bin = 0;//hst_sngl_photo->FindBin(0);
+      std::cout<<hst_sngl_photo->GetMean()<<std::endl;
+      for(int lp=0;lp<15;lp++)
+	{
+	  /*
+	  for(int i=bin_num2;i>1;i--)
+	    {
+	      //if(lp==0)
+		{
+		  if(hst_sngl_photo->Integral(1,i)>N1)
+		    {
+		      hst_sngl_photo->SetBinContent(i,0);
+		      hst_sngl_photo->SetBinError(i,0);
+		    }
+		  else
+		    {
+		      //end_flag=true;
+		  break;
+		    }
+		}
+	    }
+	  */
+	  hst_two_photo->Reset();
+	  hst_two_photo->SetLineColor(3);
+	  hst_thr_photo->Reset();
+	  hst_thr_photo->SetLineColor(5);
+	  for(int lp_x=start_bin;lp_x<bin_num2;lp_x++)
+	    {
+	      two_phe_err[lp_x] =0;	  
+	      two_phe[lp_x]     =0;
+	      three_phe_err[lp_x] =0;	  
+	      three_phe[lp_x]     =0;
+	      for(int lp_y=start_bin;lp_y<lp_x;lp_y++)
+		{
+		  ythree_phe=0;
+		  ythree_phe_err=0;
+		  for(int lp_z=start_bin;lp_z<lp_y;lp_z++)
+		    {		  
+		      ythree_phe += (hst_sngl_photo->GetBinContent(lp_y-lp_z+start_bin))
+			*(hst_sngl_photo->GetBinContent(lp_z))/(2*Nall); 
+		      ythree_phe_err +=  (hst_sngl_photo->GetBinContent(lp_y-lp_z+start_bin))
+			*(hst_sngl_photo->GetBinContent(lp_z));
+		      //for()
+		    }
+		  three_phe[lp_x] += (hst_sngl_photo->GetBinContent(lp_x-lp_y+start_bin))
+		    *ythree_phe/(3*Nall); 
+		  three_phe_err[lp_x] +=  (hst_sngl_photo->GetBinContent(lp_x-lp_y+start_bin))
+		    *ythree_phe_err;
+		  
+		  two_phe[lp_x] += (hst_sngl_photo->GetBinContent(lp_x-lp_y+start_bin))
+		    *(hst_sngl_photo->GetBinContent(lp_y))/(2*Nall); 
+		  two_phe_err[lp_x] +=  (hst_sngl_photo->GetBinContent(lp_x-lp_y+start_bin))
+		    *(hst_sngl_photo->GetBinContent(lp_y));
+		}	  
+	      two_phe_err[lp_x] = TMath::Sqrt(two_phe_err[lp_x])/(2*Nall);
+	      hst_two_photo->SetBinContent(lp_x,two_phe[lp_x]);
+	      hst_two_photo->SetBinError(lp_x,two_phe_err[lp_x]);
+	      
+	      three_phe_err[lp_x] = TMath::Sqrt(two_phe_err[lp_x])/(6*Nall*Nall);
+	      hst_thr_photo->SetBinContent(lp_x,three_phe[lp_x]);
+	      hst_thr_photo->SetBinError(lp_x,three_phe_err[lp_x]);
+	    }     
+	  hst_sngl_photo->Add(hst_nonzero,hst_two_photo,1.,-1.);
+	  hst_sngl_photo->Add(hst_sngl_photo,hst_thr_photo,1.,-1.);
+	  for(int lp_bin = bin_num2; lp_bin>0;lp_bin--)
+	    {
+	      float minus_value = 0;
+	      float minus_error = 0;
+	      if(hst_sngl_photo->GetBinContent(lp_bin)<0 )
+		{
+		  minus_value = hst_sngl_photo->GetBinContent(lp_bin)+hst_sngl_photo->GetBinContent(lp_bin-1);		  
+		  hst_sngl_photo->SetBinContent(lp_bin,0.);
+		  hst_sngl_photo->SetBinError(lp_bin,0.);
+		  hst_sngl_photo->SetBinContent(lp_bin-1,minus_value);
+
+		}
+	      
+	    }
+	  
+	  std::cout<<hst_sngl_photo->GetMean()<<std::endl;
+	}
+      
+      hst_chrg_raw->SetName("chrg");
+      hst_chrg_raw->Rebin(10);
+      hst_chrg_raw->SetTitle("Charge Distoribution");
+      hst_chrg_raw->SetXTitle("Charge (mV*ns)");
+      hst_chrg_raw->SetYTitle("count");
+      hst_chrg_raw->GetXaxis()->CenterTitle();
+      hst_chrg_raw->GetYaxis()->CenterTitle();
+      hst_chrg_raw->GetYaxis()->SetTitleOffset(1.2);
+      hst_chrg_raw->Write();
+
+      hst_dark->Rebin(10);
+      hst_dark->SetName("Dark");
+      hst_dark->SetTitle("Dark Distoribution");
+      hst_dark->SetXTitle("Charge (mV*ns)");
+      hst_dark->SetYTitle("count");
+      hst_dark->GetXaxis()->CenterTitle();
+      hst_dark->GetYaxis()->CenterTitle();
+      hst_dark->GetYaxis()->SetTitleOffset(1.2);  
+      hst_dark->Write();
+      
+      hst_sngl_photo->SetName("Single_photo");
+      hst_sngl_photo->SetTitle("Single Photo Distoribution");
+      hst_sngl_photo->SetXTitle("Charge (mV*ns)");
+      hst_sngl_photo->SetYTitle("count");
+      hst_sngl_photo->GetXaxis()->CenterTitle();
+      hst_sngl_photo->GetYaxis()->CenterTitle();
+      hst_sngl_photo->GetYaxis()->SetTitleOffset(1.2);
+      hst_sngl_photo->Write();
+      
+      hst_two_photo->SetName("two_photo");
+      hst_two_photo->SetTitle("Two Photo Distoribution");
+      hst_two_photo->Write();
+      
+      hst_thr_photo->SetName("three_photo");
+      hst_thr_photo->SetTitle("Three Photo Distoribution");
+      hst_thr_photo->Write();
+      
+      savefile->Write();
+      savefile->Close();
+    }
+  return 0;
+}
+

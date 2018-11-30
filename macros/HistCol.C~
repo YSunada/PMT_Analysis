@@ -1,0 +1,29 @@
+#include "Rtypes.h"
+void HistCol(TH1F* hst, int col)
+{
+  int color =0;
+  switch(col)
+    {
+    case 0:
+      color = 4;
+      break;
+    case 1:
+      color = 2;
+      break;
+    case 3:
+      color = 3;
+      break;
+    case 4:
+      color = 7;
+      break;
+    case 5:
+      color = 6;
+      break;
+    case 6:
+      color = 8;
+      break;
+    }
+  hst->SetLineColor(color);
+  hst->SetFillColor(color);
+  hst->SetFillStyle(3003);
+}

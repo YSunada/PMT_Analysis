@@ -1,0 +1,118 @@
+
+/////////////////////////////////////////////
+// File include                            //
+/////////////////////////////////////////////
+
+#include "iostream"
+#include "TFile.h"
+#include "TTree.h"
+#include "TH1.h"
+#include "string"
+#include "TF1.h"
+#include "TCanvas.h"
+#include "TGraphErrors.h"
+#include "TApplication.h"
+#include "TString.h"
+#include "TMath.h"
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <complex>
+#include <unistd.h>
+//#include <regex>
+
+/////////////////////////////////////////////
+// Define constant                         //
+/////////////////////////////////////////////
+#include <global.h>
+#include <pre_analysis.h> 
+#include <chrg.h>
+#include <name_edit.h>
+/////////////////////////////////////////////
+// Main Program                            //
+/////////////////////////////////////////////
+
+int main( int argc, char **argv)
+{
+  std::cout<<std::endl<<std::endl<<std::endl<<std::endl<<std::endl<<std::endl<<std::endl<<std::endl;
+  TString onefile = argv[1];
+  int fn_ini =  onefile.Last('/');
+  TString path = onefile(0,fn_ini+1);
+  TString seri_date = onefile(fn_ini+10,24);
+  TString chrgfile = path+"Chrg"+seri_date;
+  std::cout<<chrgfile<<std::endl;
+  TString Date=GetDate2(onefile);
+  TString Serial=GetSerial(onefile);
+  {
+   }
+  TFile* file_one = TFile::Open(onefile);
+  TFile* file_chrg = TFile::Open(chrgfile);
+  TFile* savefile = TFile::Open("PMT_Result/"+Serial+"_"+Date+".root","UPDATE");  
+  TGraphErrors* grph_volt_gain = new TGraphErrors();
+  TGraphErrors* grph_chrg =(TGraphErrors*)(file_chrg->Get("grph_Charge"));
+  TH1F* hst_single = (TH1F*)(file_one->Get("Single_photo"));
+  double* volt;
+  double* chrg;
+  double chrg_err[5]={};
+  volt=grph_chrg->GetX();
+  chrg=grph_chrg->GetY();
+  for(int i=0;i<5;i++)
+    {
+      chrg_err[i]=grph_chrg->GetErrorY(i);
+    } 
+  float onephoto = hst_single->GetMean();
+  float operr    = hst_single->GetMeanError();
+  ///////////////////////////////////////////////////
+  //           Convert Charge to Gain              //
+  ///////////////////////////////////////////////////
+  float gain1400V=0;
+  float Multi = chrg[4]/onephoto;
+  float MltErr= TMath::Sqrt(std::pow(chrg_err[5]/onephoto,2)+
+			    std::pow(chrg[5]*operr/(onephoto*onephoto),2)); 
+  for(int lp_volt = 0;lp_volt<5;lp_volt++)
+    {
+      float  gain     = af*chrg[lp_volt]/g_impd/g_echrg/Multi/1.0e+3/1.0e+9;
+      if(lp_volt==4)
+      gain1400V= gain;
+      float  err_chrg = chrg_err[lp_volt]/g_impd/g_echrg/Multi/1.0e+3/1.0e+9;
+      float err_multi = chrg[lp_volt]*MltErr/g_impd/g_echrg/(Multi*Multi)/1.0e+3/1.0e+9; 
+      float  gainerr  =TMath::Sqrt(err_chrg*err_chrg + err_multi*err_multi);
+      grph_volt_gain->SetPoint(lp_volt,1000.+lp_volt*100.,gain);
+      grph_volt_gain->SetPointError(lp_volt,0,4.0*gainerr);
+      //std::cout<<"voltage  :  Gain   = "<<volt[lp_volt]<<"   :   "<<gain<<std::endl;      
+    }
+  float par0 =gain1400V*(grph_chrg->GetFunction("HV_Chrg")->GetParameter(0))/chrg[4];
+  std::cout<<"1p.e. Error is "<<hst_single->GetMeanError()<<std::endl;
+  std::cout<<"gain1400V   :  par  :   chrg[1400]"<<std::endl
+	   <<gain1400V<<"  :  "<<grph_chrg->GetFunction("HV_Chrg")->GetParameter(1)<<"    :    "<<chrg[4]<<std::endl;
+    
+  TF1 *HV_Gain =new TF1("func_fit","[0]*(x-350.0)**[1]",0,2000);
+  std::cout<<"Fiiting parameter   :    "<<par0<<"  :  "<<grph_chrg->GetFunction("HV_Chrg")->GetParameter(1)<<std::endl;
+
+  
+  HV_Gain->SetParameter(0,par0);
+  HV_Gain->SetParameter(1,grph_chrg->GetFunction("HV_Chrg")->GetParameter(1));
+  grph_volt_gain ->Fit("func_fit");
+  //grph_volt_gain->GetFunction("func_fit")->GetParameter(0);
+  
+  ///////////////////////////////////////////////////
+  //                Saving Data                    //
+  ///////////////////////////////////////////////////
+ 	      
+  grph_volt_gain->SetTitle("Gain - Suply Voltage "+Serial+"_"+Date);
+  grph_volt_gain->SetName("grph_Gain");
+  grph_volt_gain->SetMarkerSize(1);
+  grph_volt_gain->GetYaxis()->SetTitle("Gain");
+  grph_volt_gain->GetXaxis()->SetTitle("Supply Voltage (V)");
+  grph_volt_gain->GetYaxis()->CenterTitle();
+  grph_volt_gain->GetXaxis()->CenterTitle();
+  grph_volt_gain->GetYaxis()->SetTitleOffset(1.3);
+  // TF1 *HV_Gain =new TF1("HV_Gain","[0]*((x-350.0))**[1]",0,2000);
+  // HV_Gain->SetParameters(a,4.29);
+  // grph_volt_gain ->Fit("HV_Gain");
+  //grph_volt_gain->GetFunction->GetParameter(0);
+  grph_volt_gain->Write();
+  hst_single->Write();
+  savefile->Close();
+  return 0;
+}
+

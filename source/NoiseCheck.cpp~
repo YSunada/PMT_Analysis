@@ -1,0 +1,81 @@
+#include "TH2F.h"
+#include "TString.h"
+#include "TFile.h"
+#include "TTree.h"
+
+float smpl_frq = 5.0; //Sampling Speed of DRS4 [GHz]
+int pls_wdth = 5;//About Pulse Width [ns] FWFM
+int nSlice = 1024;//Number of DRS4 Channel
+int k_num_slice =nSlice;
+int k_edg_cut =20;
+
+#include "getopt.h"
+#include "chrg.h"
+
+
+void ShowHelp();
+
+int main (int argc,char **argv)
+{
+TString infilename = "NULL" ;
+TString treename   = "NULL" ;
+while ((opt = getopt(argc,argv,"f:t:h")) != -1)
+  {
+switch (opt)
+  {
+ case 'f':
+infilename = optarg;
+fflag =1;
+break;
+ case 't':
+treename = optarg;
+tflag = 1;
+break;
+ case 'h':
+ShowHelp();
+return -1;
+break;
+}
+}
+if(hflag || argc <2)
+  {
+ShowHelp();
+return -1;
+}
+
+  TFile* infile = TFile::Open(infilename);
+  TTree* works  = (TTree*)infile->Get(treename);
+  TString strPmtName0;
+  TString strPmtName1;
+  TString Date = GetDate(infilename);
+  int    nEvent = works->GetEntries();
+//Data Set///////////////////////////////////////////////////////////////////////
+  strPmtName0 = GetSerial1(infilename);
+  strPmtName1 = GetSerial2(infilename);
+  //////////////////////////////////////////////////////////////////////////////////
+
+TH2F* hst0 = new TH2F*("NoiseDist0","Noise Distribution",1024,0,200,400,-20,20);
+TH2F* hst1 = new TH2F*("NoiseDist1","Noise Distribution",1024,0,200,400,-20,20);
+
+works->Draw("wform1-wform0:time>>NoiseDist0","","",nEvent,0);
+works->Draw("wform3-wform2:time>>NoiseDist1","","",nEvent,0);
+
+
+
+}
+
+
+void ShowHelp(){
+      std::cout<<"/////////////////////////////////////////////////////////////////"<<std::endl
+	       <<"  Option List                "<<std::endl
+	       <<"  -f  : input filename (needed)  "<<std::endl
+	       <<"  -t  : input treename (needed)  "<<std::endl
+	       <<"  -h  : Show this message   "<<std::endl;
+	       <<"/////////////////////////////////////////////////////////////////"<<std::endl;
+}
+
+
+
+
+
+

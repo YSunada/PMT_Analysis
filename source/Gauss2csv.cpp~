@@ -1,0 +1,52 @@
+#include"iostream" 
+#include"fstream"
+#include"string"
+#include"TFile.h"
+#include"TH1F.h"
+#include"TF1.h"
+#include"TCanvas.h"
+
+int main(int argc,char **argv)
+{
+  std::string outfile = argv[1];
+  outfile = outfile + + ".csv";
+  std::ofstream ofs();
+  std::string header = "Date,const0,mean0,sigma0,const1,mean1,sigma1,const2,mean2,sigma2,mean1-mean0,chi^2,ndof,chi^2/ndof";
+  ofs << header <<std ::endl;
+
+  for(int lp_file = 0;lp_file < argc -2;lp_file++ )
+    {
+      TFile* infile  = TFile::Open(argv[lp_file+2]);
+      std::string date = argv[lp_file+2];
+      date = date.substr(7,12);
+      ofs << date << ","; 
+      TH1F*  hst     = (TH1F*)(((TCanvas*)(infile->Get("Canvas_1")))->GetPrimitive("gauss"));
+      TF1*   func    = hst->GetFunction("func_fit");
+      int    num_par = 9;
+      float  chi     = func->GetChisquare();
+      float  ndof    = func->GetNDF();
+      double par[num_par];
+      func->GetParameters(par);
+      for(int lp_par = 0;lp_par < num_par;lp_par++)
+	{
+	  std::cout<<par[lp_par]<<std::endl;
+	  ofs<<par[lp_par];
+	  if(lp_par < num_par -1)
+	    ofs<<",";
+	  else
+	    {
+	      ofs<<par[4]-par[1]<<","<<chi<<","<<ndof<<",";
+	      ofs<<chi/ndof<<std::endl;
+	    }
+	}
+      std::cout<<"Gauss2csv.cpp Line "<<__LINE__<<std::endl;
+      infile->Close();
+      std::cout<<"Gauss2csv.cpp Line "<<__LINE__<<std::endl;
+      infile->Delete();
+      std::cout<<"Gauss2csv.cpp Line "<<__LINE__<<std::endl;
+      hst->Delete();
+      std::cout<<"Gauss2csv.cpp Line "<<__LINE__<<std::endl;
+
+    }
+  return 0;
+}

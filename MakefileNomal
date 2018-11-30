@@ -1,0 +1,30 @@
+SRCS		= ${wildcard $(SRCDIR)/*.cpp}
+#Source fileのリストを取得
+OBJS		= $(SRCS:.cpp=.o)
+#上のリストから.oのリストを作成
+SRCDIR		= ./source
+ICLDIR		= ./include
+#ファイルの場所を指定
+GCC		= g++
+PROGRAM		= MainProgram
+#Program名の定義
+#上記は変数の定義です。
+
+.SUFFIXES: .cpp .o
+#ちょっとしたおまじないです。
+
+all:		$(PROGRAM)
+#makeした時の自動動作を指定
+
+.cpp.o:		
+		$(GCC) -I $(ICLDIR) -c $< -o $@
+#上のおまじないを受けてすべての.cppから.oを作る -Iでヘッダファイルの位置指定
+
+$(PROGRAM):	$(OBJS)
+		$(GCC) $(OBJS) -I $(ICLDIR) -o $(PROGRAM)
+#.oを素材としてメインプログラムを作成
+
+clean:
+		rm -f $(SRCDIR)/*.o $(PROGRAM)
+#make cleanの定義
+#.oとメインプログラムの削除
